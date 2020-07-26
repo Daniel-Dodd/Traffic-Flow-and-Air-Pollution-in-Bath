@@ -1,0 +1,38 @@
+---
+title: "Untitled"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+```{r}
+load("../../0.1.2 - Data/obs.data.rda") # Loading in observations data.
+load("../../0.1.2 - Data/site.data.rda") # Loading site information.
+load("../../0.1.2 - Data/vehicles.data.rda") #  Loading in vehicles data
+```
+
+```{r}
+data <- merge(obs.data,site.data[,c("site_id","location_id")],by="site_id") # Merging location id to observations
+data <- data[order(data$t),]
+```
+
+```{r}
+data <- drop_na(data) # Get rid of blanks in the data
+data$date <- as.Date(data$t)
+day_index <- cbind(date=c(unique(data$date)),day_index=c(0:(length(c(unique(data$date)))-1))) # Index of the day
+day_index<-merge(data,day_index,by="date") # Merging the index onto a data frame
+time_of_day<- period_to_seconds(hms(substr(data$t,12,19)))/(60*60) # Converted time to hours
+data[,"time"] <- time_of_day + day_index$day_index*24 # "time" is time measured in hours from 31st October 12:00am
+
+#Merging on type of vehicle:
+data <- merge(data,vehicles.data[,c("vehicle_id","type")],by="vehicle_id")
+data <- data[order(data$vehicle_id,data$t),]
+```
+
+Saving file:
+```{r}
+obs.type <- data
+save(obs.type,file="obs.type.rda")
+```

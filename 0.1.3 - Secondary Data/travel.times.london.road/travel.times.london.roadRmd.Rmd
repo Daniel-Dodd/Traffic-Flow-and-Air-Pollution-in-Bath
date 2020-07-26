@@ -1,0 +1,39 @@
+---
+title: "Congestion In Bath Analysis"
+output:
+  html_document: default
+---
+
+#Packages and Data:
+```{r message=FALSE, warning=FALSE}
+load("../from.to/from.to.rda")
+library(tidyverse)
+library(broom)
+library(lubridate)
+library(gridExtra)
+```
+
+Select the main sites connected to London Road
+```{r}
+select_lr_journey_data <- function(from.to) {
+#Filter out the main locations connected to London Road according to figure 1.0 (a)
+dat<- from.to[from.to$location_from %in% c(2,3,14,15,20) & from.to$location_to %in% c(2,3,14,15,20), ]
+#Remove jumps back to the same node:
+dat <- dat[-which(dat$location_from==dat$location_to),]
+#Remove all other 'edges'expect for the ones directly connected to London road which is site 14:
+dat <-dat[-which(dat$location_from !=14 & dat$location_to !=14),]
+#Return the data:
+dat}
+lr_journey_data <- select_lr_journey_data(from.to)
+```
+
+Filter out journey times larger than 30 minutes.
+```{r}
+lr_journey_data %>% filter(journey_time<0.5) -> lr_journey_data
+```
+
+```{r}
+travel.times.london.road <- lr_journey_data
+save(travel.times.london.road,file="travel.times.london.road.rda")
+```
+
