@@ -1,0 +1,12 @@
+---
+title: "7 - Conclusion"
+output: github_document
+---
+
+The proposed Bath Clean Air Zone (CAZ) policy, has taken steps in the right direction. However, to tackle the NO2 pollution problem in Bath, aggregate effects need to be taken into account. Out of petrol and diesel vehicles, cars may be the least polluting vehicle type, and individually have a smaller impact on traffic congestion than for other types of vehicles. However, due the vast volumes of petrol and diesel cars, the entire vehicle class is most responsible for causing congestion and NO2 pollution. It is recommended that an introduction of CAZ charges for petrol and diesel cars should be considered.
+
+Additionally, there is evidence that petrol and diesel vans are higher polluting than petrol and diesel trucks, both individually and in aggregate. This is likely due to that fact that trucks are passing straight through London Road, in contrast to vans, which may stop off or take a detour into side roads, for example, to make deliveries. However, the current policy has failed to identify this feature and as such, the current charges are £9 for vans and £100 for trucks. It is recommended that charges for petrol and diesel vans should be increased.
+
+There is evidence to suggest that the Cleveland Bridge weight restrictions has resulted in a reduction in NO2 pollution levels. It is recommended that the weight restrictions should remain in place after the renovations works have been completed. Also, the renovation works should be taken as an opportunity to investigate the effect of introducing a ban for all vehicles travelling over Cleveland Bridge on NO2 pollution levels.
+
+The COVID-19 restrictions have had a drastic effect on reducing NO2 pollution levels. From the 2011 Census, under normal circumstances, the city of Bath has 27,715 commuters that drive cars into the city daily. Of those, 8,279 are residents of Bath driving to work in Bath. After the pandemic, people should be encouraged to continue working from home where possible. All residents living in Bath should be encouraged to walk, cycle, or take public transport, instead of travelling by car.

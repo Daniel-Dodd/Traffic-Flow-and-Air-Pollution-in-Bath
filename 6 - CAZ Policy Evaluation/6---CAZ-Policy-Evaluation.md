@@ -1,0 +1,260 @@
+6 - Modelling results & CAZ policy evaluation
+================
+
+``` r
+library(tidyverse)
+library(brms)
+library(bayesplot)
+library(broom)
+library(reshape)
+library(ridge)
+library(gridExtra)
+library(cowplot)
+load('../3.0 - Model Data/LR.NO2.rda')
+load('../3.2 - Linear & Ridge Regression Models/NO2.linear.ridge.models.rda')
+load('../3.4 - Traffic Volumes & Average Journey Speeds/traffic.voumes.journey.speeds.rda')
+load('../3.3 - Constrained Linear Model/cl.types.rda')
+
+#In this section we evaluate the effectiveness of the current CAZ policy and consider the effect of additional measures.
+```
+
+6.1 - NO2 pollution modelling results:
+======================================
+
+In this subsection, results for models with NO2 as a response variable are presented. Proposed interventions for the CAZ policy based on these results are given.
+
+Vehicle type and NO2 pollution:
+-------------------------------
+
+Through modelling NO2 levels against petrol and diesel vehicle counts of cars, vans, trucks and buses per 15 minute interval, there was strong evidence that buses were the highest polluting vehicle type, followed by vans, trucks and then cars. Fuel type and Euro emission standard effects were not distinguishable with types of vehicle from the data. But in additional models, there is evidence to suggest their relative effects:
+
+-   Diesel vehicles were higher polluting than petrol vehicles.
+-   For petrol vehicles: vehicles from Euro 1-3 were highest polluting followed by Euro 4, Euro 5 and Euro 6, respectively.
+-   For diesel vehicles: vehicles from Euro 1-3 were highest polluting followed by Euro 4, and Euro 5-6, respectively.
+
+However, in aggregate, decreasing the percentage of car volumes would have the greatest reduction on NO2 levels, followed by vans, buses then trucks, respectively. This can clearly be seen from figure 6.1 (a), which shows the predicted effect of 50% decrease in traffic volumes, for each vehicle type on NO2 levels, with all other variables remaining unchanged. This is the expected NO2 measurements, if the study was repeated over the same two week period (31st October - 13th November 2017), with the same conditions, but with a 50% decrease in the volumes per 15 minute interval for one the vehicle types.
+
+``` r
+graph.model.ridge <- function(carPER=0,busPER=0,vanPER=0,truckPER=0,title=NULL) {
+  #Change traffic volumes according to specified percentages:
+  LR.NO2.types %>% mutate(car=car*(1-carPER),
+                          bus=bus*(1-busPER),
+                          van=van*(1-vanPER),
+                          truck=truck*(1-truckPER)) -> dat
+  #Graph:
+data.frame(DateTime=LR.NO2$DateTime,Current= predict(lr.types),Reduction=predict(lr.types,dat)) %>% melt(id.vars="DateTime") %>% ggplot() + geom_line(mapping=aes(y=value,x=as.POSIXct(DateTime),color=variable),size=0.4) + scale_x_datetime(date_breaks = "2 day",date_labels ='%a\n%d') + xlab("Date/Time")+ylab("NO2 (ppm)") + ggtitle(title) + geom_point(LR.NO2,mapping=aes(y=NO2,x=DateTime),size=0.2,alpha=0.15)}
+
+legend<- cowplot::get_legend(graph.model.ridge(carPER=0.5,title="Predicted effect: 50% decrease in car volumes:")+theme(legend.position = "top",legend.title = element_blank()))
+
+blankPlot <- ggplot()+geom_blank(aes(1,1)) + 
+  cowplot::theme_nothing()
+
+p1<-graph.model.ridge(carPER=0.5,title="50% decrease in cars:")+xlab("")+
+  
+  theme(axis.text.x=element_blank(),
+        plot.title = element_text(size = 10),
+        legend.position = "none",
+        axis.title.y=element_text(size = 10)) +
+    theme(plot.margin = unit(c(0,0,0,0), "cm"))
+
+p2<-graph.model.ridge(vanPER=0.5,title="50% decrease in vans:")+xlab("")+ylab("")+ 
+  
+  theme(axis.text.x=element_blank(),
+        plot.title = element_text(size = 10),
+        axis.text.y=element_blank(),
+        legend.position = "none") +
+    theme(plot.margin = unit(c(0,0,0,0), "cm"))
+
+p3<-graph.model.ridge(busPER=0.5,title="50% decrease in buses:") +
+  
+  theme(plot.title = element_text(size = 10),
+        axis.text.y=element_text(size = 9),
+        axis.text.x = element_text(size = 8),
+        axis.title.x = element_text(size = 9),
+        axis.title.y = element_text(size = 9),
+        legend.position = "none") +
+    theme(plot.margin = unit(c(0,0,0,0), "cm"))
+
+p4<-graph.model.ridge(truckPER=0.5,title="50% decrease in trucks:")+ylab("")+
+  theme(plot.title = element_text(size = 10),
+        axis.text.y=element_blank(),
+        legend.position = "none",
+        axis.text.x = element_text(size = 8),
+        axis.title.x = element_text(size = 9)) +
+    theme(plot.margin = unit(c(0,0,0,0), "cm"))
+
+#Graphs of 50% decrease for each vehicle class:
+grid.arrange(legend,blankPlot,p1,p2,p3,p4,heights = c(2.5, 10.5,12),ncol=2,nrow=3,top="Figure 6.1 (a): 50% decrease in traffic volumes on NO2 levels:")
+```
+
+![](Figs/unnamed-chunk-3-1.png)
+
+The modelling suggests that in aggregate, cars contribute 908% the amount of trucks, 173% the amount of vans, 272% the amount of buses, towards NO2 pollution. The current CAZ policy has placed charges on buses, vans and trucks (petrol vehicles from Euro classes 4-6 and diesel vehicles from Euro class 6 are exempt). These are the highest polluting vehicle types. However, to have the greatest impact on reducing emissions in Bath, charges for cars should be considered.
+
+Charged vs exempt vehicles and NO2 pollution:
+---------------------------------------------
+
+Through modelling counts of charged (petrol and diesel vehicles which will have to pay a daily charge) and exempt vehicles (petrol and diesel vehicles which are exempt from paying a daily charge) under the current policy, it was found that both variables were statistically significant and there was evidence to suggest that a charged vehicle pollutes more than an exempt vehicle.
+
+However, in aggregate, the exempt group of vehicles contribute more towards NO2 pollution levels than the charged group of vehicles. This can be seen in figure 6.1 (b), which shows the predicted effect of a 50% decrease in the volumes of charged, exempt, charged and exempt vehicles, with all other variables remaining unchanged.
+
+``` r
+graph.lm.charged <- function(chargedPER=0,exemptPER=0,title=NULL) {
+  #Change traffic volumes according to specified percentages:
+  LR.NO2.charged %>% mutate(charged=charged*(1-chargedPER),
+                          exempt=exempt*(1-exemptPER)) -> dat
+  #Graph:
+data.frame(DateTime=LR.NO2$DateTime,Current=predict(lm.charged),Reduction=predict(lm.charged,dat)) %>% melt(id.vars="DateTime") %>% ggplot() + geom_line(mapping=aes(y=value,x=as.POSIXct(DateTime),color=variable),size=0.4) + scale_x_datetime(date_breaks = "2 day",date_labels ='%a\n%d') + xlab("Date/Time")+ylab("NO2 (ppm)") + ggtitle(title) + geom_point(LR.NO2,mapping=aes(y=NO2,x=DateTime),size=0.1,alpha=0.15)}
+
+#Graphs of 50% decrease in charged vehiceles
+grid.arrange(
+graph.lm.charged(chargedPER=0.5,title="50% decrease in charged volumes:")+theme(legend.position = "none",plot.title = element_text(size = 10),legend.title = element_blank(),axis.text.x = element_text(size = 8),axis.text.y = element_text(size = 8),
+        axis.title.x = element_text(size = 8),axis.title.y = element_text(size = 9))+
+    theme(plot.margin = unit(c(0,0,0,0), "cm")),
+
+graph.lm.charged(exemptPER=0.5,title="50% decrease in exempt volumes:")+ylab("")+theme(legend.position = "none",plot.title = element_text(size = 10),legend.title = element_blank(),axis.text.x = element_text(size = 8),axis.text.y = element_blank(),
+        axis.title.x = element_text(size = 8),axis.title.y = element_text(size = 9))+
+    theme(plot.margin = unit(c(0,0,0,0), "cm")),
+
+graph.lm.charged(chargedPER=0.5,exemptPER=0.5,title="\n50% decrease in charged and exempt volumes:")+theme(plot.title = element_text(size = 10),legend.title = element_blank(),axis.text.x = element_text(size = 8),axis.text.y = element_text(size = 8),
+        axis.title.x = element_text(size = 8),axis.title.y = element_text(size = 9))+
+    theme(plot.margin = unit(c(0,0,0,0), "cm")), ncol=2 , layout_matrix = cbind(c(1,3), c(2,3)),widths=c(3,2.8),top="Figure 6.1 (b): 50% decrease of charged and exempt vehicles on NO2 levels:\n")
+```
+
+![](Figs/unnamed-chunk-4-1.png)
+
+A decrease in the number of vehicles on the road from the charged category vehicles, would lead to a slight improvement in NO2 pollution levels. However, as shown in figure 6.2 (b), in aggregate, the same decrease in the proportion of vehicles that are currently exempt, would have a greater reduction in NO2 pollution levels. To achieve the strongest reduction in NO2 levels, additional charges should be introduced to target the group of vehicles that are currently exempt.
+
+Congestion and NO2 pollution:
+-----------------------------
+
+Evidence for congestion between London Road and Swainswick/Box Road/Bear Flat/Warminster Road was observed and shown in chapter 2. Through modelling it was found that average journey speeds had a statistically significant effect on NO2 pollution levels. As average journey speeds increase, NO2 levels decrease. To improve the air quality, average journey speeds need to be improved. Results of modelling congestion against traffic counts are given in section 6.2.
+
+Cleveland Bridge restrictions and NO2 pollution:
+------------------------------------------------
+
+In chapter 4, evidence was found that weight restrictions imposed on Cleveland Bridge since the 3rd February 2020, have reduced the amount of NO2 pollution measured by the London Road AURN monitoring station. It is recommended that the weight restriction should remain in place.
+
+Weather and NO2 pollution:
+--------------------------
+
+The following weather variables had a statistically significant effect on NO2 pollution levels. There is evidence to suggest the following:
+
+-   As humidity/wind speed increase, NO2 pollution levels decrease.
+-   As pressure increases, NO2 pollution levels increase.
+-   The wind direction has an effect on NO2 pollution levels.
+
+6.2 - Congestion modelling results:
+===================================
+
+In this subsection, results for models with average journey speeds as a response variable are presented. Proposed interventions for the CAZ policy based on these results are given.
+
+Vehicle type and congestion:
+----------------------------
+
+Through modelling it was found that as counts of petrol and diesel vehicles on London Road (for traffic flowing in the same direction as the destination), increased, average journey speeds decreased. Additionally, individually, buses have the greatest effect on reducing average journey speeds followed by industrial vehicles (vans and trucks) and then cars.
+
+However, when considering the aggregate effect, cars have the greatest impact on average journey speeds. This can be seen graphically in figures 6.2(a) - 6.2(c), which show the predicted effect on a 50% decrease in car, industrial vehicle, and bus volumes on average journey speeds from Warminster Road to London Road, and from Swainswick to London Road, with all other variables remaining unchanged.
+
+``` r
+graph.volumes.speeds <- function(mod, carPER=0, industrialPER=0, busPER=0, title=NULL,east_west="e",remove_last_entry=FALSE) {
+  
+  truckPER <- industrialPER
+  vanPER <- industrialPER
+  
+  #Change traffic volumes according to specified percentages:
+  if(east_west=="e"){
+  
+            LR.NO2.direction.e %>% mutate(care=care*(1-carPER),
+                          buse=buse*(1-busPER),
+                          vane=vane*(1-vanPER),
+                          trucke=trucke*(1-truckPER)) -> dat}  
+  if(east_west=="w"){
+        LR.NO2.direction.w %>% mutate(carw=carw*(1-carPER),
+                          busw=busw*(1-busPER),
+                          vanw=vanw*(1-vanPER),
+                          truckw=truckw*(1-truckPER)) -> dat}
+  
+  if(remove_last_entry==TRUE){dat<-dat[-nrow(dat),]}
+  #Graph:
+data.frame(DateTime=dat$DateTime,Current=predict(mod),Reduction=predict(mod,dat)) %>% melt(id.vars="DateTime") %>% ggplot() + geom_line(mapping=aes(y=value,x=as.POSIXct(DateTime),color=variable)) + scale_x_datetime(date_breaks = "2 day",date_labels ='%a\n%b\n%d') + xlab("Date/Time")+ylab("Average journey speed") + ggtitle(title) #+ geom_point(dat,mapping=aes(y=mod$model[,1],x=DateTime),size=0.2,alpha=0.15)
+}
+
+return.graphs.speeds <- function(carPER=0,industrialPER=0,busPER=0,top=NULL){
+  grid.arrange(
+graph.volumes.speeds(lm.from_15_to_14,carPER, industrialPER, busPER,east_west = "e",title="Warminster Road to London Road:")+theme(axis.text.x=element_blank(),plot.title = element_text(size = 11))+xlab(""),
+graph.volumes.speeds(lm.from_2_to_14,title="Swainswick to London Road:",carPER, industrialPER, busPER,east_west = "w")+theme(plot.title = element_text(size = 11)),top=top)
+}
+
+s1 <- return.graphs.speeds(carPER=0.5,top="Figure 6.2 (a): 50% decrease of car volumes on congestion:")
+```
+
+![](Figs/unnamed-chunk-5-1.png)
+
+``` r
+s2 <- return.graphs.speeds(industrialPER=0.5,top="Figure 6.2 (b): 50% decrease of industrial vehicles on congestion:")
+```
+
+![](Figs/unnamed-chunk-5-2.png)
+
+``` r
+s3 <- return.graphs.speeds(busPER=0.5,top="Figure 6.2 (c): 50% decrease in bus volumes on congestion:")
+```
+
+![](Figs/unnamed-chunk-5-3.png)
+
+From figures 6.2(a)-(c), there is evidence to suggest that reducing the volume of cars would have the greatest effect on improving congestion, which would in turn reduce NO2 pollution levels (as discussed in section 6.1). Introducing additional measures on cars in the CAZ policy would discourage cars from driving through Bath and would help to mitigate the effects of congestion on NO2 pollution.
+
+Charged vs exempt vehicles and congestion:
+------------------------------------------
+
+Through modelling it was found that individually, a charged vehicle (a petrol or diesel vehicle which will have to pay a daily charge) under the current CAZ policy reduces the average journey speed more than an exempt vehicle (a petrol or diesel vehicle which is exempt from paying a daily charge). However, when considering the aggregate effect, exempt vehicles contribute more to congestion than charged vehicles. This can be seen graphically in figures 6.2(d) - 6.2(e), which show the predicted effect on a 50% decrease in charged and exempt volumes on average journey speeds from Warminster Road to London Road, and from Swainswick to London Road, with all other variables remaining unchanged.
+
+``` r
+graph.charged.speeds <- function(mod, chargedPER=0, exemptPER=0, title=NULL,east_west="e",remove_last_entry=FALSE) {
+  
+  #Change traffic volumes according to specified percentages:
+  if(east_west=="e"){
+  
+            LR.NO2.direction.charged.e %>% mutate(
+                          charged_east = charged_east * (1 - chargedPER),
+                          exempt_east = exempt_east * (1 - exemptPER)) -> dat}  
+  if(east_west=="w"){
+    
+            LR.NO2.direction.charged.w %>% mutate(
+                          charged_west = charged_west * (1 - chargedPER),
+                          exempt_west = exempt_west * (1 - exemptPER)) -> dat}  
+  
+  if(remove_last_entry==TRUE){dat<-dat[-nrow(dat),]}
+  #Graph:
+  data.frame(DateTime=dat$DateTime,Current=predict(mod), Reduction=predict(mod,dat)) %>% melt(id.vars="DateTime") %>% ggplot() + geom_line(mapping = aes(y=value, x=as.POSIXct(DateTime), color=variable)) + scale_x_datetime(date_breaks = "2 day",date_labels ='%a\n%b\n%d') + xlab("Date/Time")+ylab("Average journey speed") + ggtitle(title) #+ geom_point(dat,mapping=aes(y=mod$model[,1],x=DateTime),size=0.2,alpha=0.15)
+}
+
+return.graphs.charged.speeds <- function(chargedPER=0,exemptPER=0,top=NULL){
+  grid.arrange(
+graph.charged.speeds(lm.charged.from_15_to_14,chargedPER, exemptPER, east_west = "e",title="Warminster Road to London Road:") + theme(axis.text.x=element_blank(),plot.title = element_text(size = 11)) + xlab(""),
+graph.charged.speeds(lm.charged.from_2_to_14,title="Swainswick to London Road:",chargedPER, exemptPER,east_west = "w")+theme(plot.title = element_text(size = 11)),top=top)
+}
+
+return.graphs.charged.speeds(chargedPER=0.5,exemptPER=0,top="Figure 6.2 (d): 50% reduction in charged vehicles on congestion")
+```
+
+![](Figs/unnamed-chunk-6-1.png)
+
+``` r
+return.graphs.charged.speeds(exemptPER=0.5,top="Figure 6.2 (e): 50% reduction in exempt vehicles on congestion")
+```
+
+![](Figs/unnamed-chunk-6-2.png)
+
+From figures 6.2 (d)-(e), decreasing the number of charged vehicles on the road would lead to a slight improvement in traffic congestion. Decreasing the same proportion of exempt vehicles on the road would have a greater reduction in congestion, which would in turn lead to a significant reduction in NO2 pollution levels.
+
+Figure 6.2 (f), shows the combined predicted effect of reducing charged and exempt vehicles on congestion for vehicles travelling from Warminster to London Road, and from Swainswick to London Road.
+
+``` r
+return.graphs.charged.speeds(chargedPER=0.5,exemptPER=0.5,top="Figure 6.2 (f): 50% reduction in both charged and exempt vehicles on congestion")
+```
+
+![](Figs/unnamed-chunk-7-1.png)
+
+Figure 6.2 (f), shows there is a profound improvement in traffic congestion when the numbers of both exempt and charged petrol and diesel vehicles on the road are reduced. It is recommended that additional measures should be introduced on the exempt category, to discourage more vehicles from travelling through Bath. The main proportion of the exempt category are cars, which evidently contribute the most towards congestion as discussed in the previous subsection.

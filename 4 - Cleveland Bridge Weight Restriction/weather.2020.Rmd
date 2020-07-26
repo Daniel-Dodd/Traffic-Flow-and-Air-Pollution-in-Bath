@@ -1,0 +1,50 @@
+---
+title: "Untitled"
+output: html_document
+---
+```{r}
+library(tidyverse)
+```
+
+Weather Data
+```{r}
+getBathWeatherData = function(month,day,year)
+{c = read.table(
+  paste0("https://www.wunderground.com/weatherstation/WXDaily",
+         "History.asp?ID=ISOMERSE15&month=",month,"&day=",day,
+         "&year=",year,"&format=1&graphspan=day"),sep=',',skip=2,fill=TRUE);
+c %>% filter(substr(c$V1,1,1)==2) -> c
+colnames(c) =c('Time','TemperatureC','DewpointC','PressurehPa','WindDirection',
+               'WindDirectionDegrees','WindSpeedKMH','WindSpeedGustKMH','Humidity',
+               'HourlyPrecipMM','Conditions','Clouds','dailyrainMM',
+               'SolarRadiationWatts/m^2','SoftwareType','DateUTC')
+c[,1]=c[,16]; c[,c(12,15,16,17)]=NULL;c
+}
+
+weather.2020.jan = { d = getBathWeatherData(01,01,2020)
+                for (i in c(2:29)) #31 and 30 are missing
+                { datai = getBathWeatherData(01,i,2020)
+                  d = rbind(d,datai)}
+               d}  
+
+weather.2020.feb = { d = getBathWeatherData(02,05,2020) # 1,2,3,4 missing
+                for (i in c(6:29))
+                { datai = getBathWeatherData(02,i,2020)
+                  d = rbind(d,datai)}
+               d}
+
+weather.2020.mar = { d = getBathWeatherData(03,01,2020)
+                for (i in c(2:13))
+                { datai = getBathWeatherData(03,i,2020)
+                  d = rbind(d,datai)}
+               d}
+```
+
+```{r}
+weather.2020 <- as.data.frame(rbind(weather.2020.jan,weather.2020.feb,weather.2020.mar))
+```
+
+```{r}
+save(weather.2020,file="weather.2020.rda")
+```
+

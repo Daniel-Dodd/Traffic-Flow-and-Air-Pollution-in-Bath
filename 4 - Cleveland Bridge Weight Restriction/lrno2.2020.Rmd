@@ -1,0 +1,33 @@
+---
+title: "Untitled"
+output: html_document
+---
+```{r}
+library(tidyverse)
+```
+
+#Loading data from DEFRA:
+```{r}
+data <- read.csv(file='https://uk-air.defra.gov.uk/data_files/site_data/BHA4_2020.csv',sep=",",header=F)[,1:11]
+names <- data[5,]
+names(data) <-as.character(unlist(names))
+names(data)[6] <- "NO2"
+data <- data[-c(1:6),]
+data$Day <- substr(data$Date,1,2)
+data$Month <- substr(data$Date,4,5)
+data$Year <- substr(data$Date,7,10)
+data$DateTime <- paste0(data$Year,"-",data$Month,"-",data$Day," ",data$time,":00")
+data$DateTime <- as.POSIXct(data$DateTime,format="%Y-%m-%d %H:%M:%OS")
+data[,c("DateTime","NO2")] -> lrno2.2020
+lrno2.2020$NO2 <- as.numeric(as.character(lrno2.2020$NO2))
+```
+
+```{r}
+lrno2.2020 %>% ggplot() + geom_point(aes(x=as.POSIXct(DateTime),y=as.numeric(NO2)),size=0.8,alpha=0.8,na.rm=TRUE) +
+  geom_vline(xintercept=as.POSIXct("2020-02-03"),col="red") + ggtitle("NO2 London Road AURN 2020:") + ylab("NO2 (ppm)") + xlab("DateTime")
+```
+
+```{r}
+save(lrno2.2020,file="lrno2.2020.rda")
+```
+

@@ -1,0 +1,178 @@
+---
+title: "4 - Cleveland Bridge weight restriction"
+output: 
+  github_document:
+    df_print: kable
+---
+```{r echo=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE,warning=FALSE,message=FALSE,dpi=300,comment=NA, warning=FALSE, fig.path="Figs/")
+```
+
+Cleveland Bridge over the River Avon is a grade II listed building. A 2019 survey identified that structural components of the bridge are life expired and need maintenance, repair or replacement. A temporary 18 tonne weight restriction on Cleveland Bridge affecting heavy goods vehicles and larger coaches was imposed on Monday February 3rd, ahead of essential structural repairs. This chapter will investigate the effect of these restrictions on NO2 pollution levels, using data collected by the London Road Automatic Urban Monitoring Network (AURN) station. The station was moved to the other side of the road in late 2019, see figure 4 in the project report.
+
+#4.1  - Data analysis and modelling of the weight restrictions on NO2 levels:
+
+```{r}
+library(tidyverse)
+library(broom)
+library("lubridate")
+load("lrno2.2020.rda")
+load("weather.2020.rda")
+```
+
+In this subsection NO2 pollution data collected by the London Road AURN monitoring station for the period 1st January - 13th March 2020 is analysed. The file **lrn02.2020.rmd**, gives details on how the NO2 pollution data **lrno2.2020.rda**, was extracted from the DEFRA (Department for Environment, Food and Rural Affairs) website. There are two main reasons as to why later data hasn't been used. The first reason is that 14th March was when the analysis and modelling in this section was carried out by the author. The second reason, later in March, the pandemic COVID-19 has effected NO2 pollutions levels. This second reason will be explored further in the next chapter.
+
+```{r}
+#Plotting graph:
+lrno2.2020 %>% group_by(DateTime=cut(as.POSIXct(DateTime),"1 day")) %>% summarise(NO2=mean(NO2,na.rm=TRUE)) %>% ggplot() + geom_line(aes(x=as.POSIXct(DateTime),y=as.numeric(NO2)),size=0.8,alpha=0.8,na.rm=TRUE,col="blue") + geom_vline(xintercept=as.POSIXct("2020-02-03"),col="red") + ggtitle("Figure 4.1 (a): Daily mean NO2 levels: London Road AURN:") + ylab("NO2 (ug/m3)") + xlab("DateTime") + scale_x_datetime(breaks="7 days",date_labels = "%d\n%b")
+```
+
+The red line on figure 4.1 (a), indicates the 3rd February, the day that the weight restrictions were imposed. Visually there appears to a decrease in NO2 values following the restrictions. Performing a t-test for measured NO2 levels before the weight restrictions vs NO2 levels after:
+
+```{r}
+#Before restrictions:
+lrno2.2020 %>% filter(DateTime<as.POSIXct("2020-02-03"),DateTime>=as.POSIXct("2020-01-01")) %>% select(NO2) -> lrno2.2020.b
+as.numeric(unlist(lrno2.2020.b)) -> before
+
+#After restrictions:
+lrno2.2020 %>% filter(DateTime>=as.POSIXct("2020-02-03"),DateTime<=as.POSIXct("2020-03-13")) %>% select(NO2) -> lrno2.2020.a
+as.numeric(unlist(lrno2.2020.a)) -> after
+
+#t-test:
+t.test(before,after)
+```
+
+The difference in NO2 levels from 1st January - 2nd February and 3rd February - 13th March is statistically significant. Moreover there is evidence to suggest that following the weight restrictions, there has been a decrease in NO2 pollution levels. However, from modelling results in chapter 3, there was evidence that some weather predictors effect NO2 levels. Some of the variance in 2020 NO2 data may be explained by meteorological features.
+
+Figure 4.1 (b) shows a plot of measured air pressure levels from 1st January - 13th March 2020.
+
+```{r}
+#Pressure
+weather.2020 %>% select(Time,PressurehPa) %>% filter(PressurehPa>100) %>% ggplot() + geom_point(aes(x=as.POSIXct(Time),y=PressurehPa),size=0.5,alpha=0.8) + xlab("Time") + ylab("Pressure  (hPa)") + ggtitle("Figure 4.1 (b): Air pressure:") + scale_x_datetime(breaks="7 days",date_labels = "%d\n%b")
+```
+
+There is a peak in air pressure where there is a peak in NO2 levels, following the 18th January. 
+
+To account for this, a linear model of NO2 against weather predictor variables and an indicator variable, **Bridge**, taking value **0** before and **1** after the weight restrictions were imposed, will be fitted.
+
+As shown in Figure 4.1 (b) there are missing values in the weather data, for instance, from 30th January - 4th February. These rows of the data have been omitted in fitting the following linear model:
+
+```{r}
+#Converting weather data into hourly means:
+weather.2020 %>% filter(as.Date(Time)<=as.Date("2020-01-31")) %>% group_by(Time=cut(as.POSIXct(Time), "1 hour")) %>% summarise(temperature=mean(TemperatureC),pressure=mean(PressurehPa),
+windDirectionDegrees=mean(WindDirectionDegrees),windSpeed=mean(WindSpeedKMH),
+hourlyPrecip=mean(HourlyPrecipMM),humidity=mean(Humidity)) -> bathweatherdata.hour.jan
+
+weather.2020 %>% filter(as.Date(Time)>=as.Date("2020-02-01") & as.Date(Time)<=as.Date("2020-02-29")) %>% group_by(Time=cut(as.POSIXct(Time), "1 hour")) %>% summarise(temperature=mean(TemperatureC),pressure=mean(PressurehPa),
+windDirectionDegrees=mean(WindDirectionDegrees),windSpeed=mean(WindSpeedKMH),
+hourlyPrecip=mean(HourlyPrecipMM),humidity=mean(Humidity)) -> bathweatherdata.hour.feb
+
+weather.2020 %>% filter(as.Date(Time)>=as.Date("2020-03-01")) %>% group_by(Time=cut(as.POSIXct(Time), "1 hour")) %>% summarise(temperature=mean(TemperatureC),pressure=mean(PressurehPa),
+windDirectionDegrees=mean(WindDirectionDegrees),windSpeed=mean(WindSpeedKMH),
+hourlyPrecip=mean(HourlyPrecipMM),humidity=mean(Humidity)) -> bathweatherdata.hour.mar
+
+bathweatherdata.hour <- rbind(bathweatherdata.hour.jan,bathweatherdata.hour.feb,bathweatherdata.hour.mar)
+
+bathweatherdata.hour$Time <- as.POSIXct(bathweatherdata.hour$Time)
+
+# Joining onto NO2 data:
+lr.2020 <- drop_na(merge(lrno2.2020,bathweatherdata.hour,by.x="DateTime",by.y="Time"))
+
+#Brige factor varible to note the bridge restrictions from 3rd February:
+lr.2020$Bridge <- factor(as.numeric(as.Date(lr.2020$DateTime)>="2020-02-03"))
+
+#Fitting a linear model:
+lm.cleveland.bridge <- lm(NO2~ pressure + cos(2*pi*windDirectionDegrees/360) + sin(2*pi*windDirectionDegrees/360) + windSpeed + humidity + Bridge, lr.2020)
+
+#Return the estimates:
+tidy(lm.cleveland.bridge) %>% select(term,estimate,std.error,p.value) %>% mutate(estimate=round(estimate,3),std.error=round(std.error,3),p.value=round(p.value,3)) %>% data.frame()
+```
+
+The indicator variable **Bridge** is significant. Moreover, the negative value suggests that the Cleveland Bridge weight restrictions have resulted in a reduction of 3 ug/m3 in the hourly measured NO2 levels.
+
+# 4.2 - Comparison to previous years:
+
+In this subsection, NO2 levels for the year 2020 are compared with previous years. NO2 data for previous years in ug/m3, has been obtained using the "openair" package. Figure 4.2 shows daily mean NO2 levels from 1st January - 13th March for the years 2016-2020. The red line on the graph indicates the 3rd February, the day that the weight restrictions were imposed.
+
+```{r}
+#Air quality data package:
+library(openair)
+#Select NO2 data for years 2017-2019:
+importAURN(site="Bath",year=c(2016,2017,2018,2019)) %>% mutate(DateTime=as.POSIXct(date),NO2=no2) %>% select(DateTime,NO2) -> lrno2
+                                                     
+lrno2$DateTime <- as.character(lrno2$DateTime)
+lrno2.2020$DateTime <- as.character(lrno2.2020$DateTime)
+lrno2 <- rbind(lrno2,lrno2.2020)
+
+#Calulate daily means:
+lrno2 %>% group_by(DateTime=cut(as.POSIXct(DateTime), "1 day")) %>% summarise(NO2=mean(NO2,na.rm=TRUE)) -> lrno2.daily.mean
+
+#Selects data from period 3rd of February - 13th March for a specific year:
+air.select <- function(year){
+lrno2.daily.mean %>% filter(as.Date(DateTime)>=as.Date(paste0(year,"-01-01"))) %>% filter(as.Date(DateTime)<=as.Date(paste0(year,"-03-13"))) }
+
+#We now get our required data:
+lrno2.period <- as.data.frame(rbind(air.select(2016),air.select(2017),air.select(2018),air.select(2019),air.select(2020)))
+lrno2.period$year <- year(lrno2.period$DateTime)
+lrno2.period$date_x = lrno2.period$DateTime
+lrno2.period$date_x <- as.character(lrno2.period$date_x)
+substr(lrno2.period$date_x,3,4)="20"
+lrno2.period %>% filter(NO2>=0) -> lrno2.period
+
+#Now plotting the graph:
+ggplot(lrno2.period,aes(x=as.POSIXct(date_x),y=NO2,colour=factor(year)))+geom_line(size=0.5,alpha=0.6) + ggtitle("Figure 4.2: Daily mean NO2 levels: London Road AURN:") + xlab("Date") + labs(col="Year") + theme(legend.position = "top") + geom_vline(xintercept=as.POSIXct("2020-03-23-20:30:00"),col="red") + ylab("NO2 (ug/m3)") + geom_line(filter(lrno2.period,year=="2020"),mapping=aes(x=as.POSIXct(date_x),y=NO2,colour=factor(year))) + geom_vline(xintercept=as.POSIXct("2020-02-03"),col="red")
+```
+
+
+It is not possible to directly compare NO2 levels from 2020 with those measured in previous years, since the air pollution monitoring station moved across to the opposite side of the road in late 2019. However, it is possible to analyse and compare the relative changes in NO2 levels. There is a decline in NO2 pollution levels for the year 2020 following 3rd February, whilst NO2 has remained at similar levels before and after the 3rd of February for previous years. This supports the findings from modelling in the previous subsection and provides further evidence that the Cleveland Bridge weight restrictions have resulted in a decrease in NO2 pollution levels.
+
+Performing a t-test of NO2 levels from 3rd February - 13th March, for the year 2020 against each of the previous years 2016-2019:
+
+```{r}
+t_test_cleveland <- function(year_Of_Comparison){
+#Filter 3rd February - 13th March:
+filter.3.Feb.to.13.March <- function(year){
+lrno2 %>% filter(as.Date(DateTime)>=as.Date(paste0(year,"-02-03"))) %>% filter(as.Date(DateTime)<=as.Date(paste0(year,"-03-13"))) }
+
+#Create Data Frame:
+  as.data.frame(rbind(
+  filter.3.Feb.to.13.March(year_Of_Comparison),
+  filter.3.Feb.to.13.March(2020))) -> lrno2.3.Feb.to.13.March
+  
+lrno2.3.Feb.to.13.March  %>% mutate(
+  year = year(lrno2.3.Feb.to.13.March$DateTime)) -> lrno2.3.Feb.to.13.March
+
+#Select NO2 data for year 2020:
+  
+lrno2.3.Feb.to.13.March %>% filter(year==2020) -> NO2.2020
+#Select NO2 data for previous years:
+lrno2.3.Feb.to.13.March %>% filter(year!=2020) -> NO2.previous.years
+
+#Perfrom t-test:
+t.test(NO2.2020$NO2,NO2.previous.years$NO2)}
+
+#t-tests
+data.frame(cbind(year_of_comparison = c("2016","2017","2018","2019"),
+                 
+                 rbind(tidy(t_test_cleveland(2016)),
+                 tidy(t_test_cleveland(2017)),
+                 tidy(t_test_cleveland(2018)),
+                 tidy(t_test_cleveland(2019))))) %>% select(year_of_comparison,estimate1,estimate2,p.value) -> t_tests
+
+colnames(t_tests) <- c("year of comparison","2020 estimate","comparison year estimate","p.value")
+
+t_tests
+```
+
+The difference is statistically significant for each of the previous years 2016-2019. The percentage change between means levels for 2020 and previous year levels are shown below:
+
+```{r}
+data.frame(t(t_tests$`comparison year estimate`-t_tests$`2020 estimate`)/(t_tests$`comparison year estimate`)) %>% round(3)*100 -> percentage_change
+colnames(percentage_change) <- c("2016","2017","2018","2019")
+rownames(percentage_change) <- "Percentage change"
+percentage_change
+```
+
+There is a large difference, between NO2 levels measured from 3rd February - 13th March in 2020 with previous years for the same period. However, the 2020 NO2 data would need adjusting to account for the location change of the air pollution monitoring station.
+
