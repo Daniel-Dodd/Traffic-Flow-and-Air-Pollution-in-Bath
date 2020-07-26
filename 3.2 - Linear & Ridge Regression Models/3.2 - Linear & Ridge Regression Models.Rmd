@@ -1,0 +1,373 @@
+---
+title: "3.2 Linear & ridge regression models"
+output: 
+  github_document:
+    df_print: kable
+---
+
+```{r echo=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE,message=FALSE,dpi=300,comment=NA, warning=FALSE, fig.path="Figs/")
+```
+
+```{r}
+library(tidyverse)
+library(ridge)
+library(broom)
+library(reshape)
+load('../3.0 - Model Data/LR.NO2.rda')
+```
+
+#3.2.1 Effect of vehicle type on NO2 pollution levels:
+
+In this subsection, the additive effect of vehicle type on NO2 levels will be explored.
+
+```{r}
+#Creating data frame for model:
+LR.NO2 %>% mutate(
+  #Adding Columns for types of vehicle:
+  car = pcar_E3 + pcar_E4 + pcar_E5 + dcar_E3 + pcar_E6 + dcar_E4  + dcar_E5 + dcar_E6,
+  truck = ptruck_E3 + dtruck_E3 + dtruck_E4 + dtruck_E5 + dtruck_E6,
+  van = pvan_E3 + pvan_E4 + pvan_E5 + pvan_E6 + dvan_E3 + dvan_E4 + dvan_E5 + dvan_E6,
+  bus = dbus_E3 + dbus_E4 + dbus_E5 + dbus_E6 ) %>% 
+  #Remove clutter:
+  select(-c(pcar_E3, pcar_E4, pcar_E5, pcar_E5, pcar_E6, dcar_E3, dcar_E4, dcar_E5, dcar_E6,
+            ptruck_E3, dtruck_E3, dtruck_E4, dtruck_E5, dtruck_E6,
+            pvan_E3, pvan_E4, pvan_E5, pvan_E6, dvan_E3, dvan_E4, dvan_E5, dvan_E6,
+            dbus_E3, dbus_E4, dbus_E5, dbus_E6 )) -> LR.NO2.types
+```
+
+Creating a linear model of NO2 against counts of petrol and diesel cars, trucks, vans & buses per 15 minute interval and weather regressors:
+
+```{r}
+#Model formula:
+formula <- NO2~ car + truck + van + bus + pressure + windSpeed + humidity + cos(2*pi*windDirectionDegrees/360) + sin(2*pi*windDirectionDegrees/360)
+#Fit the model:
+lm.types <- lm(formula,data=LR.NO2.types)
+#Return Estimates:
+tidy(lm.types) %>% select(term,estimate,std.error,p.value) %>% mutate(estimate=round(estimate,5),std.error=round(std.error,5),p.value=round(p.value,5))
+#Return r.squared, adj.r.squared, sigma, p.value, AIC:
+glance(lm.types) %>% select(r.squared, adj.r.squared, sigma, p.value, AIC)
+```
+
+The variable **truck** has a negative coefficient. Perhaps trucks are a lower polluting vehicle than the other classes, and an increase of the number of trucks would decrease the road capacity for other vehicles. Thus, as the number of trucks increase, there would be less cars, vans and buses in the 15 minute interval, resulting in a decrease in NO2 pollution levels. However, this feels rather unsettling. If there were no other vehicles travelling down the road at a particular time, then it would be unlikely that passing trucks would have a negative additive effect on NO2 pollution levels. In any case, the variable is statistically insignificant.
+
+From the other estimates there is evidence for buses being the most polluting vehicle, followed by vans then cars. Considering the correlation between the different vehicle categories:
+
+```{r}
+#Calculating the correlation between car, truck, van and bus counts per 15 minute interval:
+LR.NO2.types %>% select(car,truck,van,bus) %>% cor() %>% round(2) %>% data.frame()
+```
+
+There is a strong correlation between the predictor variables, especially between the number of vans and trucks per 15 minute interval. Multicollinearity in the linear model may be causing the variable **truck** to be negative and statistically insignificant.
+
+To resolve the issue of multicollinearity, a linear ridge regression model will be fitted. The predictor variables have been scaled to correlation form, such that the correlation matrix has unit diagonal. The ridge regression parameter lambda has been chosen such that the truck predictor estimate has been forced greater than zero and statistically significant:
+
+```{r}
+#Fitting linear ridge regression model:
+lr.types <- linearRidge(formula,data=LR.NO2.types,lambda=0.15)
+#This function returns estimates and p-values from the linear ridge model:
+look <- function(ridge.model){summary(ridge.model)$summaries$summary1$coefficients[,c(1,5)] %>% round(5) %>% data.frame() ->df; names(df)<-c("estimate","p.value"); df}
+#Returning estimates for linear ridge regression model:
+look(lr.types)
+```
+
+From this summary, buses have the greatest coefficient, followed by vans, trucks and cars, respectively.
+
+Comparing the fitted values between the linear model **lm.types** and the ridge regression model **lr.types**:
+
+```{r}
+#Comparison of models
+data.frame(DateTime=LR.NO2$DateTime,lm.types=predict(lm.types),lr.types=predict(lr.types)) %>% melt(id.vars="DateTime") %>% ggplot() + geom_line(mapping=aes(y=value,x=as.POSIXct(DateTime),color=variable)) + scale_x_datetime(date_breaks = "1 day",date_labels ='%a\n%b\n%d') + xlab("Date/Time")+ylab("NO2 (ppb)") + ggtitle("Comparison of fitted values for linear model and ridge regression model:") + geom_point(LR.NO2,mapping=aes(y=NO2,x=DateTime),size=0.2,alpha=0.5)
+```
+
+Smoothing has only made a subtle difference to the fitted model. There is evidence that buses are the most polluting vehicle type, followed by vans, trucks, cars.
+
+Multiplying the coefficients in the ridge regression model by the total traffic volumes for each vehicle type over the 2 week ANPR survey period, to investigate the aggregate effect of each vehicle type:
+
+```{r}
+#Volumes of each vehicle type multiplied by the ridge regression coefficients:
+LR.NO2.types %>% select(car,truck,van,bus) %>% apply(2,sum) * coef(lr.types)[2:5] %>% t() %>% data.frame()
+```
+
+In aggregate, there is evidence to suggest that cars contribute the most towards NO2 pollution levels, followed by vans, buses, trucks, respectively.
+
+#3.2.2 Effect of fuel type on NO2 pollution levels:
+
+In this subsection, the additive effect of fuel type on NO2 levels is explored.
+
+```{r}
+#Creating data frame for model:
+LR.NO2 %>% mutate(
+  #Adding Columns for vehicle and fuels types:
+  pcar = pcar_E3 + pcar_E4 + pcar_E5 + pcar_E6,
+  dcar = dcar_E3 + dcar_E4 + dcar_E5 + dcar_E6,
+  ptruck = ptruck_E3,
+  dtruck = dtruck_E3 + dtruck_E4 + dtruck_E5 + dtruck_E6,
+  pvan = pvan_E3 + pvan_E4 + pvan_E5 + pvan_E6,
+  dvan = dvan_E3 + dvan_E4 + dvan_E5 + dvan_E6,
+  dbus = dbus_E4 + dbus_E4 + dbus_E5 + dbus_E6, 
+  
+  #Adding Columns for fuels types:
+  petrol = pcar + ptruck + pvan,
+  diesel = dcar + dtruck + dvan +dbus) %>% 
+  
+  #Remove clutter:
+  select(-c(pcar_E3, pcar_E4, pcar_E5, pcar_E5, pcar_E6, dcar_E3, dcar_E4, dcar_E5, dcar_E6,
+            ptruck_E3, dtruck_E3, dtruck_E4, dtruck_E5, dtruck_E6,
+            pvan_E3, pvan_E4, pvan_E5, pvan_E6, dvan_E3, dvan_E4, dvan_E5, dvan_E6,
+            dbus_E3, dbus_E4, dbus_E5, dbus_E6 )) -> LR.NO2.types.ft
+```
+
+```{r}
+#Model formula:
+formula.ft <- NO2~ diesel + petrol + pressure + windSpeed + humidity + cos(2*pi*windDirectionDegrees/360) + sin(2*pi*windDirectionDegrees/360)
+#Fit the model:
+lm.ft <- lm(formula.ft,data=LR.NO2.types.ft)
+#Return Estimates:
+tidy(lm.ft) %>% select(term,estimate,std.error,p.value) %>% mutate(estimate=round(estimate,4),std.error=round(std.error,4),p.value=round(p.value,4))
+#Return r.squared, adj.r.squared, sigma, p.value, AIC:
+glance(lm.ft) %>% select(r.squared, adj.r.squared, sigma, p.value, AIC)
+```
+
+In this simple model, the number of petrol vehicles per 15 minute interval are statistically insignificant. This may suggest that the estimate is not different from zero, and the number of petrol vehicles has no additive effect NO2 pollution levels. However, there is a strong correlation between petrol and diesel vehicles:
+
+```{r}
+#Calculating the correlation between diesel and petrol vehicle counts per 15 minute interval:
+LR.NO2.types.ft %>% select(diesel,petrol) %>% cor() %>% round(2) %>% data.frame()
+```
+
+The variable **petrol** may be insignificant as a result of multicollinearity. Fitting a linear ridge regression model, with lambda chosen to force petrol to be significant:
+
+```{r}
+#Fitting linear ridge regression model and returning estimates:
+look(lr.ft<-linearRidge(formula.ft,LR.NO2.types.ft,lambda=0.016))
+```
+
+The coefficient for petrol vehicles is much smaller than for diesel vehicles. This is evidence to suggest that a diesel vehicle is higher polluting a petrol vehicle.
+
+```{r}
+#Comparison of models
+data.frame(DateTime=LR.NO2$DateTime,lm.ft=predict(lm.ft),lr.ft=predict(lr.ft)) %>% melt(id.vars="DateTime") %>% ggplot() + geom_line(mapping=aes(y=value,x=as.POSIXct(DateTime),color=variable)) + scale_x_datetime(date_breaks = "1 day",date_labels ='%a\n%b\n%d') + xlab("Date/Time")+ylab("NO2 (ppb)") + ggtitle("Comparison of fitted values for linear model and ridge regression model:") + geom_point(LR.NO2,mapping=aes(y=NO2,x=DateTime),size=0.2,alpha=0.5)
+```
+
+The smoothing has had very little effect on the fit between the models.
+
+Multiplying the total volumes of diesel and petrol vehicles over the two week period by the coefficients in the ridge regression model:
+
+```{r}
+#Diesel and petrol vehicle volumes multiplied by the ridge regression model coefficients:
+LR.NO2.types.ft %>% select(diesel,petrol) %>% apply(2,sum) * coef(lr.ft)[2:3] %>% t() %>% data.frame()
+```
+
+This is evidence that, in aggregate, the additive contribution towards NO2 pollution levels is far greater for diesel vehicles than for petrol vehicles.
+
+#3.2.3 Euro emission standards:
+
+In this subsection, the additive effect of Euro emission standards on NO2 pollution levels is investigated.
+
+```{r}
+#Creating data frame for model:
+LR.NO2 %>% mutate(
+  #Columns of vehicle counts according to Euro Classes:
+  E3 = pcar_E3 + dcar_E3 + ptruck_E3 + dtruck_E3 + pvan_E3 + dvan_E3 + dbus_E3,
+  E4 = pcar_E4 + dcar_E4 + dtruck_E4 + pvan_E4 + dvan_E4 + dbus_E4,
+  E5 = pcar_E5 + dcar_E5 + dtruck_E5 + pvan_E5 + dvan_E5 + dbus_E5,
+  E6 = pcar_E6 + dcar_E6 + dtruck_E6 + pvan_E6 + dvan_E6 + dbus_E6,
+  
+  #Columns of vehicle counts according to Euro Classes and fuel type:
+  p_E3 = pcar_E3 + ptruck_E3 + pvan_E3,
+  d_E3 = dcar_E3 + dtruck_E3 + dvan_E3 + dbus_E3,
+  p_E4 = pcar_E4 + pvan_E4,
+  d_E4 = dcar_E4 + dtruck_E4 + dvan_E4 + dbus_E4,
+  p_E5 = pcar_E5 + pvan_E5,
+  d_E5 = dcar_E5 + dtruck_E5 + dvan_E5 + dbus_E5,
+  p_E6 = pcar_E6 + pvan_E6,
+  d_E6 = dcar_E6 + dtruck_E6 + dvan_E6 + dbus_E6) -> LR.NO2.euro
+```
+
+Fitting a linear model of counts of vehicles from Euro 1-3, Euro 4, Euro 5, and Euro 6 against measured NO2 levels:
+
+```{r}
+#Model formula:
+formula.euro <- NO2~E3+E4+E5+E6+pressure+windSpeed+humidity+cos(2*pi*windDirectionDegrees/360)+sin(2*pi*windDirectionDegrees/360)
+#Fit the model:
+lm.euro <- lm(formula.euro,data=LR.NO2.euro)
+#Return Estimates:
+tidy(lm.euro) %>% select(term,estimate,std.error,p.value) %>% mutate(estimate=round(estimate,5),std.error=round(std.error,5),p.value=round(p.value,5))
+#Return r.squared, adj.r.squared, sigma, p.value, AIC:
+glance(lm.euro) %>% select(r.squared, adj.r.squared, sigma, p.value, AIC)
+```
+
+Surprisingly, the variable **E4** (Euro 4 vehicles), has a smaller coefficient than the variables **E5** (Euro 5 vehicles) and **E6** (Euro 6 vehicles). However, the coefficients for Euro 1-3, Euro 4 and Euro 6 vehicles are insignificant.
+
+Fitting a linear ridge regression model:
+```{r}
+#Fitting linear ridge regression model and returning estimates:
+look(linearRidge(formula.euro,data=LR.NO2.euro,lambda=0.01))
+```
+
+This gives similar results to the linear model.
+
+Considering the proportions of diesel and petrol vehicles within each Euro class:
+
+```{r}
+#proportions of diesel and petrol vehicles within each Euro class:
+LR.NO2.euro %>% select(d_E3,d_E4,d_E5,d_E6) %>% apply(2,sum)->d
+LR.NO2.euro %>% select(p_E3,p_E4,p_E5,p_E6) %>% apply(2,sum)->p
+
+prop <- data.frame(rbind(round(d/(d+p),3),round(p/(d+p),3)))
+rownames(prop) <- c("diesel vehicles","petrol vehicles")
+colnames(prop) <- c("Euro class 1-3","Euro class 4","Euro class 5","Euro class 6")
+prop
+```
+
+Euro 5 has a much higher proportion of diesel cars and much lower proportion of petrol cars than Euro 4. This is perhaps why the coefficient for E5 is larger than E4. This observation can also be seen in Euro 6, which may additionally be the reason why the E6 coefficient is larger than Euro 4. This provides motivation to explore the extra dimension of fuel type with Euro emission standards.
+
+#3.2.4 Fuel type and Euro emission standards:
+
+In this subsection, the model in 3.2.3 is extended, with fuel type as an extra dimension.
+
+```{r}
+#Model formula:
+formula.euro.ft <- NO2~p_E3+p_E4+p_E5+p_E6+d_E3+d_E4+d_E5+d_E6+pressure+windSpeed+I(cos(2*pi*windDirectionDegrees/360))+I(sin(2*pi*windDirectionDegrees/360))+humidity
+#Fit the model:
+lm.euro.ft <- lm(formula.euro.ft,data=LR.NO2.euro)
+#Return Estimates:
+tidy(lm.euro.ft) %>% select(term,estimate,std.error,p.value) %>% mutate(estimate=round(estimate,5),std.error=round(std.error,5),p.value=round(p.value,5))
+#Return r.squared, adj.r.squared, sigma, p.value, AIC:
+glance(lm.euro.ft) %>% select(r.squared, adj.r.squared, sigma, p.value, AIC)
+```
+
+Petrol cars in Euro 5 and 6 have negative coefficients. There is a strong correlation between these vehicle groups:
+
+```{r}
+LR.NO2.euro %>% select(p_E3,p_E4,p_E5,p_E6,d_E3,d_E4,d_E5,d_E6) %>% cor() %>% round(2) %>% data.frame()
+```
+
+Fitting a model through linear ridge regression:
+
+```{r}
+#Fitting linear ridge regression model and returning estimates:
+look(lr.euro.ft<-linearRidge(formula.euro.ft,data=LR.NO2.euro,lambda=0.32))
+```
+
+The smoothing has had little difference on the fitted model:
+
+```{r}
+#Comparison of models
+data.frame(DateTime=LR.NO2$DateTime,lm.euro.ft=predict(lm.euro.ft),lr.euro.ft=predict(lr.euro.ft)) %>% melt(id.vars="DateTime") %>% ggplot() + geom_line(mapping=aes(y=value,x=as.POSIXct(DateTime),color=variable)) + scale_x_datetime(date_breaks = "1 day",date_labels ='%a\n%b\n%d') + xlab("Date/Time")+ylab("NO2 (ppb)") + ggtitle("Comparison of fitted values for linear model and ridge regression model:") + geom_point(LR.NO2,mapping=aes(y=NO2,x=DateTime),size=0.2,alpha=0.5)
+```
+
+The diesel coefficients, for each of the Euro emission standards, 1-3, 4, 5 & 6 are larger than the corresponding petrol coefficients. This is evidence to suggest that diesel vehicles are higher polluting than petrol vehicles, and supports the findings of the ridge regression model given in subsection 3.2.2.
+
+There is a decline in the magnitude of the petrol coefficients when moving from Euro emission standards 1-3 to Euro 6, which suggests that for petrol vehicles, vehicles from Euro 1-3 are the most polluting, followed by Euro 4, Euro 5, and Euro 6, respectively. 
+
+There is a similar decrease in the magnitude for the diesel coefficients, however diesel Euro 6 has a larger coefficient than diesel Euro 5. Looking at a breakdown of proportions by vehicle type for these two groups:
+
+```{r}
+#Diesel euro class 5 breakdown:
+LR.NO2 %>% select(dcar_E5,dvan_E5,dtruck_E5,dbus_E5) %>% apply(2,sum) -> diesel.euro.5
+(diesel.euro.5/sum(diesel.euro.5)) %>% round(3) -> euro.5.break.down
+#Diesel euro class 6 breakdown:
+LR.NO2 %>% select(dcar_E6,dvan_E6,dtruck_E6,dbus_E6) %>% apply(2,sum) -> diesel.euro.6
+(diesel.euro.6/sum(diesel.euro.6)) %>% round(3) -> euro.6.break.down
+#Table
+break.down <- data.frame(rbind(euro.5.break.down,euro.6.break.down))
+rownames(break.down) <- c("Diesel Euro class 5","Diesel Euro class 6")
+colnames(break.down) <- c("car","van","truck","bus")
+break.down
+```
+
+There are a higher proportion of buses, trucks and cars in Euro 6 and a lower proportion of vans than Euro 5. This might be the cause of diesel Euro 6 having larger coefficient than diesel Euro 5.
+
+Linearly combining diesel vehicles from Euro 5 and 6 and fitting a linear ridge regression model: 
+
+```{r}
+#Model formula
+formula.euro.ft <- NO2~p_E3+p_E4+p_E5+p_E6+d_E3+d_E4+I(d_E5+d_E6)+pressure+windSpeed+I(cos(2*pi*windDirectionDegrees/360))+I(sin(2*pi*windDirectionDegrees/360))+humidity
+#Fitting linear ridge regression model and returning estimates:
+look(lr.euro.ft<-linearRidge(formula.euro.ft,data=LR.NO2.euro,lambda=0.25))
+```
+
+There is evidence that for diesel vehicles, vehicles from Euro 5-6, are lowest polluting, followed by vehicles from Euro 4, Euro 1-3, respectively. All the other inferences made for the larger model remain the same for this model.
+
+
+#3.2.5 Charged vs exempt vehicles:
+
+In this subsection, a simple linear model of NO2 against counts of charged (petrol and diesel vehicles which will have to pay a daily charge) and exempt (petrol and diesel vehicles which are exempt from paying a daily charge) vehicles under the current Bath CAZ policy is fitted:
+
+```{r}
+LR.NO2 %>% mutate(charged = pvan_E3 + dvan_E3 + dvan_E4 + dvan_E5 + ptruck_E3 + dtruck_E3 + dtruck_E4 + dtruck_E5 + dbus_E3 + dbus_E4 + dbus_E5,
+                  exempt = pcar_E3 + pcar_E4 + pcar_E5 + pcar_E6 + dcar_E3 + dcar_E4 + dcar_E5 + dcar_E6 + dtruck_E6 + dbus_E6 + pvan_E4 + pvan_E5 + pvan_E6 + dvan_E6) -> LR.NO2.charged
+```
+
+```{r}
+#Model formula:
+formula.charged <- NO2~ charged + exempt + pressure + windSpeed + I(cos(2*pi*windDirectionDegrees/360))+I(sin(2*pi*windDirectionDegrees/360)) + humidity
+#Fit the model:
+lm.charged <- lm(formula.charged,data=LR.NO2.charged)
+#Return Estimates:
+tidy(lm.charged) %>% select(term,estimate,std.error,p.value) %>% mutate(estimate=round(estimate,5),std.error=round(std.error,5),p.value=round(p.value,5))
+#Return r.squared, adj.r.squared, sigma, p.value, AIC:
+glance(lm.charged) %>% select(r.squared, adj.r.squared, sigma, p.value, AIC)
+```
+
+Both variables are significant. There is evidence that a charged petrol or diesel vehicle will pollute more than an exempt petrol or diesel vehicle.
+
+However there are many more exempt petrol and diesel vehicles than charged petrol and diesel vehicles:
+
+```{r}
+#Charged and exempt vehicle counts:
+LR.NO2.charged %>% select(charged,exempt) %>% apply(2,sum) %>% t() %>% data.frame()
+```
+
+Considering the aggregate effect:
+
+```{r}
+#Multiplying sums of charged and exempt vehicle counts by the coefficients in the linear model:
+LR.NO2.charged %>% select(charged,exempt) %>% apply(2,sum) * coef(lm.charged)[2:3] %>% t() %>% data.frame()
+```
+
+In aggregate, exempt petrol and diesel vehicles contribute more towards NO2 pollution levels than exempt petrol and diesel vehicles, under the current Bath CAZ policy.
+
+#3.2.6 Average journey speeds and NO2 pollution:
+
+This subsection will investigate the effect of average journey speeds on NO2 pollution levels. A linear model with NO2 against mean average journey speeds per 15 minute interval and with weather regressors, will be fitted. From the findings in subsection 3.1.2, row 1344 of the data will be omitted when fitting the linear model, where this caused extremely high leverage on the initial linear model. This was due to an extremely fast mean average journey speed from London Road to Swainswick of 184 mph for the 15 minute interval starting at 11:45pm on 13th November 2017.
+
+Fitting a linear model of NO2 against mean average journey speeds per 15 minute interval and with weather regressors:
+
+```{r}
+#Model formula:
+formula.speed <- NO2~pressure+windSpeed+humidity+cos(2*3.14*windDirectionDegrees/360)+sin(2*3.14*windDirectionDegrees/360)+from_2_to_14+from_3_to_14+from_14_to_2+from_14_to_3+from_15_to_14+from_20_to_14+from_14_to_15+from_14_to_20
+#Fit the model:
+lm.speed <- lm(formula.speed,data=LR.NO2[-1344,])
+#Return Estimates:
+tidy(lm.speed) %>% select(term,estimate,std.error,p.value) %>% mutate(estimate=round(estimate,3),std.error=round(std.error,3),p.value=round(p.value,3)) %>% data.frame()
+#Return r.squared, adj.r.squared, sigma, p.value, AIC:
+glance(lm.speed) %>% select(r.squared, adj.r.squared, sigma, p.value, AIC) %>% data.frame()
+```
+
+All of the average journey speed variables have negative coefficients. This suggests that an increase in average journey speed results in a decrease in NO2 pollution levels. The variable from_14_to 20 is insignificant. There are strong correlations between the variables:
+
+```{r}
+LR.NO2 %>% select(from_2_to_14,from_3_to_14,from_14_to_2,from_14_to_3,from_15_to_14,from_14_to_15,from_20_to_14,from_14_to_20) %>% cor() %>% round(2) %>% data.frame()
+```
+
+Fitting a linear ridge regression model:
+
+```{r}
+#Fitting linear ridge regression model:
+lr.speed <- linearRidge(formula.speed,data=LR.NO2[-1344,],lambda = 0.9)
+#Return estimates:
+look(lr.speed)
+```
+
+There is evidence that average journey speeds for vehicles travelling from Warminster Road to London Road (from_15_to_14) have the greatest effect on NO2 levels out of the other average journey speed variables.
+
+
+```{r echo=FALSE}
+#save all files:
+save(lm.types,lr.types,lm.ft,lr.ft,lm.euro,lm.euro.ft,lr.euro.ft,LR.NO2.euro,LR.NO2.types,LR.NO2.types.ft,LR.NO2,formula,formula.euro,formula.euro.ft,formula.ft,formula.charged,lm.charged,LR.NO2.charged,lm.speed,lr.speed,formula.speed,file="NO2.linear.ridge.models.rda")
+```
+

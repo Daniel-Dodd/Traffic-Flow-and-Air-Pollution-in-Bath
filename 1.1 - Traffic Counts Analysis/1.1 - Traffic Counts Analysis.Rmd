@@ -1,0 +1,130 @@
+---
+title: "1.1 - Traffic counts analysis"
+output:
+  output: github_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=FALSE,dpi=300,comment=NA, warning=FALSE, fig.path="Figs/")
+options(show.signif.stars = FALSE)
+```
+
+```{r}
+#Loading in the packages:
+library(tidyverse)
+library(broom)
+library(lubridate)
+library(gridExtra)
+```
+
+###Traffic counts analysis for London Road and main ANPR sites:
+
+In this section traffic counts for the London Road, Swainswick, Box Road, Bear Flat and Warminster Road ANPR sites are analysed. These locations were chosen as the busiest ANPR sites, that vehicles travel to after visiting the London Road ANPR site, or travel from before visiting the London Road ANPR site, according to **figure 1.0 (a)**.
+
+This subsection uses the data set **counts.rda**, which gives vehicle counts per 15 minute interval for each of the 66 ANPR cameras from the ANPR survey. This data set was created from **obs.data.rda** and can be found in **0.1.3 - Secondary Data/anpr.counts** along with the file used to create it: **anpr.counts.rmd**.
+
+```{r eval=FALSE}
+#loading in the data:
+load("../0.1.3 - Secondary Data/anpr.counts/counts.rda")
+load("../0.1.2 - Data/site.data.rda")
+
+#Adding on Weekdays to our counts data:
+week_levels<-c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+counts %>% mutate(time_of_day=substring(Time,12,19), day_of_week=factor(weekdays(as.POSIXct(Time)),levels=week_levels)) -> counts
+
+save(counts,file="counts.rda")
+```
+
+```{r echo=FALSE}
+load("counts.rda")
+load("../0.1.2 - Data/site.data.rda")
+```
+
+
+```{r}
+#Counts graph function:
+mean.counts.graph <- function(vector,title=NULL,by=NULL,filter_weekday=NULL,what=NULL,io=c("inbound","outbound"),ncol=2){
+data <- counts
+
+#Filter weekday:
+if (!is.null(filter_weekday)) {data <- data[data$day_of_week == filter_weekday,]}
+
+#Filter weekend / weekday:
+if(!is.null(what)) {
+  if(what=="Weekend") {data <- data[data$day_of_week %in% c("Saturday","Sunday"),]}
+   if(what=="Weekday") {data <- data[data$day_of_week %in% c("Monday","Tuesday","Wednesday","Thursday","Friday"),]}}
+
+
+#Mean Number of vehicles per 15 minutes:
+if(by=="15min"){
+data %>% group_by(time_of_day = time_of_day,site_id,.drop=FALSE) %>% summarise(mean=mean(n)) -> mean.counts
+mean.counts <- merge(mean.counts,site.data,by="site_id")
+mean.counts <- mean.counts[order(mean.counts$time_of_day,mean.counts$location_id,mean.counts$site_id),]
+data <- mean.counts[mean.counts$location_id %in% vector,]
+  #Plot graph:
+data %>% ggplot() +
+  geom_line(mapping=aes(x=as.POSIXct(time_of_day,format = "%H:%M:%OS"),y=mean, colour=factor(paste(location_id,": ",description)), linetype=factor(in_out))) + scale_x_datetime(date_breaks = "1 hour",date_labels ='%H') + xlab("Hour of day") + ylab("Mean Counts per 15 minutes") + ggtitle(title) + labs(colour="ANPR site:",linetype="Direction of traffic: ") ->graph}
+#Mean daily number of vehicles per week day:
+if(by=="Daily"){
+
+data %>% group_by(site_id,day_of_week,.drop=FALSE) %>% summarise(sum=sum(n)) -> sums
+sums %>% group_by(site_id,day_of_week,.drop=FALSE) %>% summarise(mean=mean(sum)/2) -> mean.counts
+mean.counts <- merge(mean.counts,site.data,by="site_id")
+mean.counts <- mean.counts[order(mean.counts$day_of_week,mean.counts$location_id,mean.counts$site_id),]
+data <- mean.counts[mean.counts$location_id %in% vector,]
+
+#Plot graph:
+data%>% ggplot() +
+  geom_line(mapping=aes(x=factor(day_of_week),y=mean,group=paste(in_out,location_id), colour=factor(paste(location_id,": ",description)),linetype=factor(in_out)),size=0.5) + xlab("Day of Week") + ylab("Mean Daily Count") + ggtitle(title) + labs(colour="ANPR site: ",linetype="Direction of traffic: ") ->graph}
+
+graph + theme(legend.position = "top") + scale_linetype(labels=io) + guides(colour=guide_legend(ncol=ncol),linetype=guide_legend(ncol=1))
+}
+
+#Location vector:
+x<- c(2,3,14,15,20)
+#Figure 1.1 (a)
+mean.counts.graph(x,by="Daily",title="Figure 1.1 (a) : Mean daily traffic counts: ")
+#Figure 1.1 (b)
+mean.counts.graph(x,by="15min",what="Weekday", title="Figure 1.1 (b): Mean traffic counts per 15 minute interval: weekdays:")
+#Figure 1.1 (c)
+mean.counts.graph(x,by="15min",what="Weekend",title="Figure 1.1 (c): Mean traffic counts per 15 minute interval: weekends:")
+```
+
+Figure 1.1 (a), shows mean daily traffic counts for London Road, Swainswick, Box Road, Bear Flat and Warminster Road.
+
+There is a lower mean daily vehicle count observed during the weekend than during the weekdays for each of the sites. Vehicle counts are most busy along London Road.
+
+There are differences in the flow of traffic travelling inbound (towards the city centre) vs the flow of traffic travelling outbound (away from the city centre) for each of the sites. There is a trough in the mean daily vehicle counts on Wednesday observed on outbound travelling traffic for London Road Warminster Road.
+
+Figure 1.1 (b), shows the mean number of vehicles per 15 minute interval for weekdays. For the week days, there are two sharp peaks at 07:00-09:00 and from 16:00-19:00, coinciding with rush hour traffic. This in comparison to Figure 1.1 (c), which shows the mean number of vehicles per 15 minute interval for weekends, peaks during 10:00-17:00 depending on the site. There is no difference in the ordering of the busiest sites between weekdays and weekends.
+
+### Vehicle counts London Road by vehicle type and weekdays:
+
+In this subsection, mean traffic counts by the day of the week and by vehicle type for vehicles captured by the London Road ANPR cameras (where the direction of travel is combined) are analysed.
+
+This subsection uses the data set **obs.type.rda**. This is **obs.data.rda** joined with the variable **type** from **vehicle.data.rda**. This data set can be found in **0.1.3 - Secondary Data/obs.type** along with the file used to create it: **obs.type.rmd**.
+
+Figure 1.1 (d) shows mean traffic counts by the day of the week and by vehicle type for vehicles travelling along London Road (the direction of travel is combined).
+
+```{r}
+#Loading in data:
+load("../0.1.3 - Secondary Data/obs.type/obs.type.rda")
+load("../0.1.2 - Data/site.data.rda")
+
+#Exctract London Road data:
+obs.type %>% filter(location_id==14,type %in% c("CARS","HCVs","LCVs","PSVs")) -> LR.type
+
+#Adding on Weekdays to our counts data:
+week_levels<-c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+LR.type %>% mutate(day_of_week=factor(weekdays(as.POSIXct(t)),levels=week_levels)) ->LR.type
+
+#Day of week:
+LR.type %>% ggplot() + geom_bar(aes(x=day_of_week,fill=type,weight=0.5)) + xlab("Day of week") + ggtitle("Figure 1.1 (d): Mean traffic counts by day of week and vehicle type:") + ylab("Mean counts") + xlab("Day of the week") + labs(fill="Vehicle type:")
+```
+
+The majority of vehicles travelling down London Road (throughout the whole week) are cars, then light commercial vehicles (LCVs), heavy commercial vehicles (HCVs), and public service vehicles (PSVs) respectively. HCVs and LCVs both have largely consistent counts on weekdays, but appear in lower numbers on weekends. PSVs have very consistent counts from Monday to Saturday, with lower numbers exhibited on Sundays.
+
+ 
+
+
+
+

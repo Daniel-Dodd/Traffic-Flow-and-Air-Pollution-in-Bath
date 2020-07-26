@@ -1,0 +1,312 @@
+---
+title: "Extract data"
+author: 
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document
+---
+
+```{r echo=FALSE}
+library(knitr)
+opts_chunk$set(comment=NA, warning=FALSE, fig.path="/tmp/Figs/")
+```
+
+This file creates **LR.NO2.direction** & **LR.NO2** from the raw data.
+
+```{r}
+#Load in packages and data:
+library(tidyverse)
+library(lubridate)
+library(zoo)
+load('../0.1.3 - Secondary Data/from.to/from.to.rda')
+load('../0.1.2 - Data/air.data.rda')
+load('../0.1.2 - Data/vehicles.data.rda')
+load('../0.1.2 - Data/obs.data.rda')
+load('../0.1.2 - Data/site.data.rda')
+load('../0.1.2 - Data/weather.data.rda')
+distances <- read.csv("../0.1.1 - Raw Data/Google Maps Distances Data/distances_london_road.csv")
+```
+
+# Create LR.NO2. direction:
+
+### Creating data frame of Air quality data and ANPR counts data (by vehicle types, fuel type & Euro Class):
+
+Read in air quality data and extract only London Road data:
+
+```{r airqualitydata, cache=TRUE}
+air.data[air.data$`Sensor Location Name`=="London Road AURN",] %>% select(DateTime,NOx,NO,NO2) ->lraq
+lraq$DateTime = ymd_hms(lraq$DateTime)
+```
+
+Load in the sites, vehicle and ANPR data. Join together.
+
+```{r load, cache=TRUE}
+##extracted .zip from http://bit.ly/banesanprdata
+observations_joined = left_join(obs.data, site.data, by = 'site_id')%>%
+  left_join(vehicles.data, by = c('vehicle_id'))
+```
+
+Extract the London Road observations and only the needed variables:
+
+```{r}
+observations_joined %>% filter(location_id == 14) %>% select(t,direction,type,intro_date,euro_status, fuel_type) -> lrv
+```
+
+Collapsing data:
+
+```{r}
+#Collapse EU status into 4 groups, E3 (Euro 1-3), E4 (Euro 4),E5 E4 (Euro 5) & E6 (Euro 6):   
+   lrv$euro_status = fct_collapse(lrv$euro_status,
+   E3 = c("E0","E1","E2","E3"),
+   E4 = "E4",
+   E5 = c("5","E5"),
+   E6 = c("6","E6"))
+
+#Remove unknown Euro classes:
+ lrv %>% filter(euro_status %in% c("E3","E4","E5","E6")) -> lrv
+                               
+#Remove rare vehicle or unknown vehicle types:                              
+  lrv %>% filter(type %in% c("CARS","HCVs","LCVs","PSVs")) -> lrv 
+  
+#Filter out petrol and diesel engined vehicles:  
+  lrv %>% filter(fuel_type %in% c("PETROL","DIESEL")) -> lrv
+  lrv$fuel_type = fct_drop(lrv$fuel_type)
+```  
+
+Divide the data into time periods of 15 minutes each with a single factor for the groups: 
+
+```{r}
+start = ymd("2017-10-31")
+brks = start + minutes((0:(14*24*4))*15)
+lrv %>% mutate(tinv = cut(as.POSIXct(t),breaks=brks)) %>% unite(vt,type,fuel_type,euro_status) %>% select(-t) -> incar
+```
+
+Assemble the frequency of the groups:
+
+```{r}
+incar %>% group_by(tinv, vt, direction) %>% count() %>% spread(vt,n,fill=0) %>%  ungroup() -> scar
+scar %>% mutate(tinv = ymd_hms(tinv)) -> scar
+
+wscar = scar %>% filter(direction == 'W') %>% select(-direction)
+escar = scar %>% filter(direction == 'E') %>% select(-direction)
+```
+
+
+A few time periods have no vehicles
+
+```{r}
+left_join(lraq,wscar,by=c('DateTime'='tinv')) -> bathcaz
+left_join(bathcaz,escar,by=c('DateTime'='tinv')) -> bathcaz
+bathcaz %>% replace(is.na(.), 0) -> bathcaz
+```
+
+Creating the data frame:
+```{r}
+bathcaz %>% mutate(pcarw_E3 = CARS_PETROL_E3.x,
+                   pcarw_E4 = CARS_PETROL_E4.x,
+                   pcarw_E5 = CARS_PETROL_E5.x,
+                   pcarw_E6 = CARS_PETROL_E6.x,
+                   
+                   pcare_E3 = CARS_PETROL_E3.y,
+                   pcare_E4 = CARS_PETROL_E4.y,
+                   pcare_E5 = CARS_PETROL_E5.y,
+                   pcare_E6 = CARS_PETROL_E6.y,
+                   
+                   dcarw_E3 = CARS_DIESEL_E3.x,
+                   dcarw_E4 = CARS_DIESEL_E4.x,
+                   dcarw_E5 = CARS_DIESEL_E5.x,
+                   dcarw_E6 = CARS_DIESEL_E6.x,
+                   
+                   dcare_E3 = CARS_DIESEL_E3.y,
+                   dcare_E4 = CARS_DIESEL_E4.y,
+                   dcare_E5 = CARS_DIESEL_E5.y,
+                   dcare_E6 = CARS_DIESEL_E6.y,
+                   
+                   dtruckw_E3 = HCVs_DIESEL_E3.x,
+                   dtruckw_E4 = HCVs_DIESEL_E4.x,
+                   ptruckw_E3 = HCVs_DIESEL_E3.x,
+                   dtruckw_E5 = HCVs_DIESEL_E5.x,
+                   dtruckw_E6 = HCVs_DIESEL_E6.x,
+                   
+                   dtrucke_E3 = HCVs_DIESEL_E3.y,
+                   dtrucke_E4 = HCVs_DIESEL_E4.y,
+                   ptrucke_E3 = HCVs_PETROL_E3.y,
+                   dtrucke_E5 = HCVs_DIESEL_E5.y,
+                   dtrucke_E6 = HCVs_DIESEL_E6.y,
+                   
+                   dvanw_E3 = LCVs_DIESEL_E3.x,
+                   pvanw_E3 = LCVs_PETROL_E3.x,
+                   dvanw_E4 = LCVs_DIESEL_E4.x,
+                   pvanw_E4 = LCVs_PETROL_E4.x,
+                   dvanw_E5 = LCVs_DIESEL_E5.x,
+                   pvanw_E5 = LCVs_PETROL_E5.x,
+                   dvanw_E6 = LCVs_DIESEL_E6.x,
+                   pvanw_E6 = LCVs_PETROL_E6.x,
+                   
+                   dvane_E3 = LCVs_DIESEL_E3.y,
+                   pvane_E3 = LCVs_PETROL_E3.y,
+                   dvane_E4 = LCVs_DIESEL_E4.y,
+                   pvane_E4 = LCVs_PETROL_E4.y,
+                   dvane_E5 = LCVs_DIESEL_E5.y,
+                   pvane_E5 = LCVs_PETROL_E5.y,
+                   dvane_E6 = LCVs_DIESEL_E6.y,
+                   pvane_E6 = LCVs_PETROL_E6.y,
+                   
+                   dbusw_E3 = PSVs_DIESEL_E3.x,
+                   dbusw_E4 = PSVs_DIESEL_E4.x,
+                   dbusw_E5 = PSVs_DIESEL_E5.x,
+                   dbusw_E6 = PSVs_DIESEL_E6.x,
+                   
+                   dbuse_E3 = PSVs_DIESEL_E3.y,
+                   dbuse_E4 = PSVs_DIESEL_E4.y,
+                   dbuse_E5 = PSVs_DIESEL_E5.y,
+                   dbuse_E6 = PSVs_DIESEL_E6.y
+
+                   ) %>% 
+  select(DateTime,NO2, NO, NOx,
+         
+         pcarw_E3,pcarw_E4,pcarw_E5,pcarw_E6,pcare_E3,pcare_E4,pcare_E5,pcare_E6,    dcarw_E3,dcarw_E4,dcarw_E5,dcarw_E6,dcare_E3,dcare_E4,dcare_E5,dcare_E6,
+         
+         ptruckw_E3,dtruckw_E3,dtruckw_E4,dtruckw_E5,dtruckw_E6,
+         ptrucke_E3,dtrucke_E3,dtrucke_E4,dtrucke_E5,dtrucke_E6,
+         
+         pvanw_E3,pvanw_E4,pvanw_E5,pvanw_E6,dvanw_E3,dvanw_E4,dvanw_E5,dvanw_E6,
+         pvane_E3,pvane_E4,pvane_E5,pvane_E6,dvane_E3,dvane_E4,dvane_E5,dvane_E6,
+         
+         dbusw_E3,dbusw_E4,dbusw_E5,dbusw_E6,dbuse_E3,dbuse_E4,dbuse_E5,dbuse_E6) -> bathcaz.euro
+```
+
+### Adding weather data:
+
+```{r}
+weather.data %>% group_by(Time=cut(as.POSIXct(Time), "15 min")) %>% summarise(temperature=mean(TemperatureC),pressure=mean(PressurehPa),
+windDirectionDegrees=mean(WindDirectionDegrees),windSpeed=mean(WindSpeedKMH),
+hourlyPrecip=mean(HourlyPrecipMM),humidity=mean(Humidity)) -> bathweatherdata 
+
+bathcaz.euro %>% mutate(temperature = as.numeric(bathweatherdata$temperature),
+pressure = as.numeric(bathweatherdata$pressure),
+windDirectionDegrees = as.numeric(bathweatherdata$windDirectionDegrees), windSpeed = as.numeric(bathweatherdata$windSpeed),humidity = as.numeric(bathweatherdata$humidity), hourlyPrecip = as.numeric(bathweatherdata$hourlyPrecip)) -> bathcaz.euro.weather
+```
+
+### Adding average journey speeds per 15 minute interval:
+
+Journey times for main locations connected to London Road:
+
+```{r}
+#Filter out the main locations connected to London Road:
+sites <- c(2,3,14,15,20)
+from.to %>% filter(location_from %in% sites,location_to %in% sites) -> journey.times
+#Remove jumps back to the same node:
+journey.times <- journey.times[-which(journey.times$location_from==journey.times$location_to),]
+#Remove all other 'edges'expect for the ones directly connected to London road which is site 14:
+journey.times <-journey.times[-which(journey.times$location_from !=14 & journey.times$location_to !=14),]
+```
+
+Extract Journey time Clusters:
+
+```{r}
+#mode function
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+#Clean function extracts clusters:
+clean <- function(data,within.mins,set.max){
+  data <- data[data$journey_time<set.max,]
+  data <- data[order(as.numeric(data$site_from),as.numeric(data$site_to),data$time_from),]
+  data$time_from_round_15 <- lubridate::round_date(as.POSIXct(data$time_from), "1 hour")
+  data$round_journey_time <- round(data$journey_time*60,1)/60
+  data %>% group_by(site_from,site_to,time_from_round_15) %>% summarise(mode=Mode(round_journey_time)) -> mode_journeys
+  data <- merge(data,mode_journeys,by=names(mode_journeys)[1:3])
+  data<- data[which(abs(data$round_journey_time-data$mode)*60<within.mins),]
+  data}
+
+# We accept points that are 5 minutes from the mode per 15 minute interval and have a journey time less than 30 minutes:
+clean_lr_journey_data <- clean(journey.times,5,0.5)
+```
+
+Now take mean journey times per 15 minute interval:
+
+```{r}
+#Take means per 15 minute interval:
+clean_lr_journey_data %>% group_by(DateTime = cut(as.POSIXct(c("2017-10-31 00:00:00",time_from[-length(clean_lr_journey_data$time_from)])), breaks="15 min"),location_from=factor(location_from),location_to=factor(location_to),.drop=FALSE) %>% summarise(mean_journey_time=mean(journey_time)) -> mean.journey.times
+
+#Remove jumps back to the same node:
+mean.journey.times <- mean.journey.times[-which(mean.journey.times$location_from !=14 & mean.journey.times$location_to !=14),]
+
+#Remove jumps back to the same node:
+mean.journey.times <- mean.journey.times[-which(mean.journey.times$location_from==mean.journey.times$location_to),]
+```
+
+Interpolate missing values:
+
+```{r}
+#Interpolate missing values:
+mean.journey.times %>% arrange(desc(location_from),desc(location_to)) %>% group_by(location_from,location_to) %>% mutate(ValueInterp = na.approx(mean_journey_time, na.rm=FALSE)) -> mean.journey.times
+
+#Fill in missing values at the boundary with the next observation:
+mean.journey.times %>% fill(ValueInterp,.direction = "downup") -> mean.journey.times
+mean.journey.times <- merge(mean.journey.times,distances,by=c("location_from","location_to"))
+mean.journey.times$speeds <- mean.journey.times$distance_miles_fastest_route_google/mean.journey.times$ValueInterp 
+```
+
+Reshape data to merge onto the other data:
+
+```{r}
+mean.journey.times %>% mutate(journey = paste0("from_",location_from,"_to_",location_to)) %>% pivot_wider(id_cols=c("DateTime"),names_from="journey",values_from="speeds") -> mean.journey.times.reshape
+mean.journey.times.reshape$DateTime <- as.POSIXct(mean.journey.times.reshape$DateTime)
+bathcaz.euro.weather.speeds <- merge(bathcaz.euro.weather,mean.journey.times.reshape,by='DateTime')
+```
+
+### Save LR.NO2.direction
+```{r}
+LR.NO2.direction <- bathcaz.euro.weather.speeds
+save(LR.NO2.direction,file="LR.NO2.direction.rda")
+```
+
+# Create LR.NO2:
+
+```{r echo=FALSE}
+#Creating data frame for model:
+LR.NO2.direction %>% mutate(
+  pcar_E3 = pcarw_E3 + pcare_E3,
+  pcar_E4 = pcarw_E4 + pcare_E4,
+  pcar_E5 = pcarw_E5 + pcare_E5,
+  pcar_E6 = pcarw_E6 + pcare_E6,
+  dcar_E3 = dcarw_E3 + dcare_E3,
+  dcar_E4 = dcarw_E4 + dcare_E4,
+  dcar_E5 = dcarw_E5 + dcare_E5,
+  dcar_E6 = dcarw_E6 + dcare_E6,
+  
+  ptruck_E3 = ptruckw_E3 + ptrucke_E3,
+  dtruck_E3 = dtruckw_E3 + dtrucke_E3,
+  dtruck_E4 = dtruckw_E4 + dtrucke_E4,
+  dtruck_E5 = dtruckw_E5 + dtrucke_E5,
+  dtruck_E6 = dtruckw_E6 + dtrucke_E6,
+  
+  pvan_E3 = pvanw_E3 + pvane_E3,       
+  pvan_E4 = pvanw_E4 + pvane_E4,
+  pvan_E5 = pvanw_E5 + pvane_E5,
+  pvan_E6 = pvanw_E6 + pvane_E6,
+  dvan_E3 = dvanw_E3 + dvane_E3,
+  dvan_E4 = dvanw_E4 + dvane_E4,
+  dvan_E5 = dvanw_E5 + dvane_E5,
+  dvan_E6 = dvanw_E6 + dvane_E6,
+  
+  dbus_E3 = dbusw_E3 + dbuse_E3,
+  dbus_E4 = dbusw_E4 + dbuse_E4,
+  dbus_E5 = dbusw_E5 + dbuse_E5,
+  dbus_E6 = dbusw_E6 + dbuse_E6) %>% 
+  
+  select(-c(pcarw_E3,pcarw_E4,pcarw_E5,pcarw_E6,pcare_E3,pcare_E4,pcare_E5,pcare_E6,    dcarw_E3,dcarw_E4,dcarw_E5,dcarw_E6,dcare_E3,dcare_E4,dcare_E5,dcare_E6,
+         
+         ptruckw_E3,dtruckw_E3,dtruckw_E4,dtruckw_E5,dtruckw_E6,
+         ptrucke_E3,dtrucke_E3,dtrucke_E4,dtrucke_E5,dtrucke_E6,
+         
+         pvanw_E3,pvanw_E4,pvanw_E5,pvanw_E6,dvanw_E3,dvanw_E4,dvanw_E5,dvanw_E6,
+         pvane_E3,pvane_E4,pvane_E5,pvane_E6,dvane_E3,dvane_E4,dvane_E5,dvane_E6,
+         
+         dbusw_E3,dbusw_E4,dbusw_E5,dbusw_E6,dbuse_E3,dbuse_E4,dbuse_E5,dbuse_E6)) -> LR.NO2
+
+save(LR.NO2,file="LR.NO2.rda")
+```
