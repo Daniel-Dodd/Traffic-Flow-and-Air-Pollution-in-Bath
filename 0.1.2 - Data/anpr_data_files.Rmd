@@ -1,0 +1,53 @@
+---
+title: "Untitled"
+output: html_document
+---
+This file loads in the raw ANPR data csv files, replaces missing values with NA and saves the data as '.rda' files:
+
+Loading in packages:
+```{r message=FALSE, warning=FALSE}
+library(tidyverse); library(lubridate)
+```
+
+Load in ANPR Data:
+```{r}
+#anpr observations data:
+obs.data <- read.csv("../0.1.1 - Raw Data/ANPR Data /observations.csv")
+obs.data$t<-as.POSIXct(substr(obs.data$t,1,19))
+#site information data:
+site.data<- read.csv("../0.1.1 - Raw Data/ANPR Data /sites.csv")
+names(site.data)[1] = "site_id"
+#vehicles information data:
+vehicles.data <- read.csv("../0.1.1 - Raw Data/ANPR Data /vehicles.csv")
+colnames(vehicles.data)=c('vehicle_id',colnames(vehicles.data)[-1])
+```
+
+Replacing Missing Values with NA:
+```{r}
+#Replacing the missing values all with NA for obs.data:
+obs.data$vehicle_id[which(obs.data$vehicle_id =="")]<-NA
+#Replacing the missing values all with NA for vehicles.data:
+NA.vehicles.data <- vehicles.data
+NA.vehicles.data$make[which(vehicles.data$make=="")] = NA
+NA.vehicles.data$type[which(vehicles.data$type=="")] = NA
+NA.vehicles.data$subtype[which(vehicles.data$subtype=="")] = NA
+NA.vehicles.data$intro_date[which(vehicles.data$intro_date=="")] = NA
+NA.vehicles.data$euro_status[which(vehicles.data$euro_status=="")] = NA
+NA.vehicles.data$fuel_type[which(vehicles.data$fuel_type=="")] = NA
+NA.vehicles.data$engine_capacity[which(vehicles.data$engine_capacity=="")] = NA
+NA.vehicles.data$engine_capacity[which(vehicles.data$engine_capacity==0)] = NA
+NA.vehicles.data$co2[which(vehicles.data$co2==0)] = NA
+NA.vehicles.data$gross_vehicle_weight[which(vehicles.data$gross_vehicle_weight==0)] = NA
+NA.vehicles.data$fc_combined[which(is.na(vehicles.data$fc_combined))] = NA
+NA.vehicles.data$fc_extra_urban[which(is.na(vehicles.data$fc_extra_urban))] = NA
+NA.vehicles.data$fc_urban_cold[which(is.na(vehicles.data$fc_urban_cold))] = NA
+vehicles.data <- NA.vehicles.data
+```
+
+Saving files as '.rda' format:
+```{r}
+save(obs.data,file="obs.data.rda")
+save(site.data,file="site.data.rda")
+save(vehicles.data,file="vehicles.data.rda")
+```
+

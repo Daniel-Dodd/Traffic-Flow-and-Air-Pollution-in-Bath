@@ -1,0 +1,36 @@
+---
+title: 
+author: 
+date: 
+output:
+  html_document
+---
+The Source of the data is:
+
+https://data.bathhacked.org/Environment/-Live-Air-Quality-Sensor-Data/hqr9-djir
+
+This file converts the raw air pollution CSV file into two .rda files: 'air.data.rda' for the two week period 31st October 2017 - 13th November 2017 and 'air.entire.rda' which is all of the air pollution data.
+
+Loading in the packages
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+```{r airqualitydata, cache=TRUE}
+#Read in air quality data:
+air.raw = read_csv(file = '../0.1.1 - Raw Data/Air Pollution Data/_Live__Air_Quality_Sensor_Data.csv') 
+#Filtering out variables:
+air.raw %>% select(DateTime,`Sensor Location Name`,`Sensor Location`, NOx,NO,NO2,PM10) -> air.entire
+
+air.entire$DateTime = ymd_hms(air.entire$DateTime)
+
+#Filter data from ANPR period only:
+air.entire %>% filter(DateTime >= ymd("2017-10-31")) %>% filter(DateTime < ymd("2017-11-14")) -> air.data
+```
+
+Save air quality data:
+```{r}
+save(air.entire,file="air.entire.rda")
+save(air.data,file="air.data.rda")
+```

@@ -1,0 +1,37 @@
+---
+title: "Untitled"
+output: html_document
+---
+This file loads in weather data csv files from: source for the data is available at http://www.paulwilman.com/WUdata.php, for the period 31st October - 13th November 2017.
+
+Loading in packages:
+```{r message=FALSE, warning=FALSE}
+library(tidyverse); library(lubridate)
+```
+
+Load in weather Data:
+```{r}
+getBathWeatherData2017 = function(month,day)
+{c = read.table(
+  paste0("https://www.wunderground.com/weatherstation/WXDaily",
+         "History.asp?ID=ISOMERSE15&month=",month,"&day=",day,
+         "&year=2017&format=1&graphspan=day"),sep=',',skip=2,fill=TRUE);
+c %>% filter(substr(c$V1,1,1)==2) -> c
+colnames(c) =c('Time','TemperatureC','DewpointC','PressurehPa','WindDirection',
+               'WindDirectionDegrees','WindSpeedKMH','WindSpeedGustKMH','Humidity',
+               'HourlyPrecipMM','Conditions','Clouds','dailyrainMM',
+               'SolarRadiationWatts/m^2','SoftwareType','DateUTC')
+c[,1]=c[,16]; c[,c(12,15,16,17)]=NULL;c
+}
+
+weather.data = { d = getBathWeatherData2017(10,31)
+                for (i in c(1:13))
+                { datai = getBathWeatherData2017(11,i)
+                  d = rbind(d,datai)}
+                d}
+```
+Save the data:
+```{r}
+save(weather.data,file='weather.data.rda')
+```
+
