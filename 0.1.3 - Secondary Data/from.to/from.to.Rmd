@@ -1,0 +1,65 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+load("../../0.1.3 - Secondary Data/obs.type/obs.type.rda")
+```
+
+```{r}
+data <- obs.type
+
+# Order the data:
+data <- data[order(data$vehicle_id,data$t),]
+
+# Add time and site lagged by one value to the data frame:
+data$time_to <- c(data$t[-1],"Not applicable")
+data$hours_to <- c(data$time[-1],"Not applicable")
+data$site_to <- c(data$site_id[-1],"Not applicable")
+data$location_to <- c(data$location_id[-1],"Not applicable")
+
+# TRUE if not last occurrence, FALSE if last occurrence:
+data$not_last_occurrence <- (c(duplicated(data$vehicle_id)[-1],TRUE))
+
+# Remove last occourence's of vehicle id as this overlaps to the next vehicle id and creates a false jump from the last site of the current vehicle id, to the first site of the next vehicle id:
+data <- data[data$not_last_occurrence,]
+
+#Remove 'not_last_occurrence column since it was only just for calculation purposes:
+data <- data[,!(names(data) == "not_last_occurrence")]
+
+#Removing last row in data used for calculations:
+data<- data[-nrow(data),]
+
+#Reordering Data:
+#data <- dat
+data <- data[,c(1,7,4,2,10,5,11,3,8,6,9)]
+
+#Renaming some of the variables:
+names(data)[4]<-"site_from"
+names(data)[6]<-"location_from"
+names(data)[8]<-"time_from"
+names(data)[10]<-"hours_from"
+
+#
+data$hours_from <- as.numeric(data$hours_from)
+data$hours_to <- as.numeric(data$hours_to)
+```
+
+```{r}
+#Adding journey times:
+data %>% mutate(journey_time = as.numeric(hours_to) - as.numeric(hours_from)) -> from.to
+```
+
+
+```{r}
+save(from.to,file="from.to.rda")
+```
+
+
+
+

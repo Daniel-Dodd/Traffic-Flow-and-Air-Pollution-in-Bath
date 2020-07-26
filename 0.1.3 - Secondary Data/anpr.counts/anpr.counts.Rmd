@@ -1,0 +1,37 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+Packages:
+```{r message=FALSE}
+library(tidyverse)
+library(lubridate)
+load("../../0.1.2 - Data/obs.data.rda")
+```
+
+
+#Counts data for 15 minute intervals for each anpr site:
+```{r}
+count_requirements <- obs.data[,c("t","site_id")]
+
+count_requirements$site_id <- factor(count_requirements$site_id,levels=c(1:62,64:67))
+
+#Calculating the vehicle counts for each site per 15 minute interval: 
+start = ymd("2017-10-31")
+brks = start + minutes((0:(14*24*4))*15)
+
+count_requirements %>% group_by(Time = cut(as.POSIXct(t), breaks=brks) ,site_id,.drop = FALSE) %>% count() -> counts 
+```
+
+```{r}
+counts %>% pivot_wider(id_cols="Time",names_from="site_id",values_from="n") -> counts_sites #Converting the data frame into a wider table, where each column will be the counts for a particular site.
+counts_sites <- counts_sites[,as.character(c("Time",1:62,64:67))] #Putting in correct column order.
+counts_sites[is.na.data.frame(counts_sites)] <- 0 #NA values are set equal to 0.
+```
+
+```{r}
+anpr.counts <- counts_sites 
+save(anpr.counts,file="anpr.counts.rda")
+save(counts,file="counts.rda")
+```
