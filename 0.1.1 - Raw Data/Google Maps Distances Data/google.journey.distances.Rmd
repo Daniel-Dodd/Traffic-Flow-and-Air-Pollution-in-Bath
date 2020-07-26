@@ -1,0 +1,41 @@
+---
+title: "Untitled"
+output: html_document
+---
+```{r message=FALSE, warning=FALSE}
+library("data.table")
+library("httr")
+library("stringr")
+library("XML")
+library(dplyr)
+
+```
+
+```{r}
+load("../../0.1.1 - Data/site.data.rda")
+```
+
+```{r}
+#Retreive coordinates from site.data by site_id or location_id:
+get_coords_url <- function(from,to,type='location_id',return_coords=F){
+  if (type=='site_id'){
+    longitude.from=site.data$longitude[site.data$site_id == from]
+    latitude.from=site.data$latitude[site.data$site_id== from]
+    longitude.to=site.data$longitude[site.data$site_id == to]
+    latitude.to=site.data$latitude[site.data$site_id== to]}
+  if (type=='location_id'){
+    longitude.from=site.data$longitude[site.data$location_id == from]
+    latitude.from=site.data$latitude[site.data$location_id==from]
+    longitude.to=site.data$longitude[site.data$location_id == to]
+    latitude.to=site.data$latitude[site.data$location_id==to]}
+  
+  url <- paste("https://www.google.de/maps/dir/",latitude.from,"+",longitude.from,"/",latitude.to,",",longitude.to, sep="")
+  
+  if (isFALSE(return_coords)) r<- url
+  if (isTRUE(return_coords)){r<-cbind(longitude.from,latitude.from,longitude.to,latitude.to,url)}; r}
+```
+
+```{r}
+get_coords_url(from=43,to=28,type='site_id',return_coords=F) %>% browseURL()
+```
+
